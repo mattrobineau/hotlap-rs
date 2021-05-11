@@ -65,18 +65,32 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let mut now = Instant::now();
-    let mut hours = 0;
-    let mut minutes = 0;
-    let mut seconds = 0;
-    let mut milliseconds = 0;
+    let mut start_time: Option<Instant> = None;
+    let mut is_started = false;
+    let mut milestones: Vec<Milestone> = vec![];
 
     loop {
-        let (h, m, s, ms) = parse_millis(now.elapsed());
-        hours = h;
-        minutes = m;
-        seconds = s;
-        milliseconds = ms
+        let mut milestone: Milestone;
+
+        if let Some(start_time) = start_time {
+            let (h, m, s, ms) = parse_millis(start_time.elapsed());
+            milestone = Milestone {
+                name: String::from("1"),
+                hours: h,
+                minutes: m,
+                seconds: s, 
+                millis: ms,
+            };
+        }
+        else {
+            milestone = Milestone {
+                name: String::from(""),
+                hours: 0,
+                minutes: 0,
+                seconds: 0,
+                millis: 0,
+            };
+        }
 
         terminal.draw(|f| {
             // Split window (TOP - BOTTOM)
@@ -103,15 +117,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .title(Span::styled(format!(" {} ", title), Style::default().add_modifier(Modifier::BOLD)))
             };
 
-            // Timer pane
-            let timer = Paragraph::new(
+            let create_span = || {
+                if is_started {
                     Spans::from(format!("{}:{}:{}.{}",
-                            format_tens(hours),
-                            format_tens(minutes),
-                            format_tens(seconds),
-                            format_hundreds(milliseconds))))
-                    .block(create_block("time"));
+                    format_tens(milestone.hours),
+                    format_tens(milestone.minutes),
+                    format_tens(milestone.seconds),
+                    format_hundreds(milestone.millis)))
+                }
+                else {
+                    Spans::from(format!("00:00:00.000"))
+                }
+            };
 
+            // Timer pane
+            let timer = Paragraph::new( create_span()).block(create_block("time"));
             f.render_widget(timer, left_chunks[0]);
 
             // Hotlap instructions pane
@@ -136,12 +156,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         match rx.recv()? {
             Event::Input(event) => match event.code {
                 KeyCode::Char('q') => {
-                    paused = true;
                     disable_raw_mode()?;
                     break;
                 },
                 KeyCode::Char(' ') => {
-                    paused = !paused;
+                    if !is_started {
+                        is_started = true;
+                        start_time = Some(Instant::now());
+                    }
+                    else {
+                        milestones.push(milestone);
+                    }
                 }
                 _ => {}
             },
