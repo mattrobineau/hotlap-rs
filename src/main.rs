@@ -117,21 +117,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .title(Span::styled(format!(" {} ", title), Style::default().add_modifier(Modifier::BOLD)))
             };
 
-            let create_span = || {
+            let create_span = |m: &Milestone| {
                 if is_started {
-                    Spans::from(format!("{}:{}:{}.{}",
-                    format_tens(milestone.hours),
-                    format_tens(milestone.minutes),
-                    format_tens(milestone.seconds),
-                    format_hundreds(milestone.millis)))
+                    Span::from(format!("{}:{}:{}.{}",
+                    format_tens(m.hours),
+                    format_tens(m.minutes),
+                    format_tens(m.seconds),
+                    format_hundreds(m.millis)))
                 }
                 else {
-                    Spans::from(format!("00:00:00.000"))
+                    Span::from(format!("00:00:00.000"))
                 }
             };
 
             // Timer pane
-            let timer = Paragraph::new( create_span()).block(create_block("time"));
+            let timer = Paragraph::new(create_span(&milestone)).block(create_block("time"));
             f.render_widget(timer, left_chunks[0]);
 
             // Hotlap instructions pane
@@ -147,10 +147,25 @@ fn main() -> Result<(), Box<dyn Error>> {
             f.render_widget(hotlap, left_chunks[1]);
 
             // Mileshtones
-            let milestones = Paragraph::new(Spans::from("No data"))
-                .block(create_block("milestones"));
+            if milestones.len() > 0 {
+                let mut spans: Vec<Spans> = vec![];
 
-            f.render_widget(milestones, chunks[1]);
+                for m in milestones.iter() {
+                    let style = Style::default().add_modifier(Modifier::BOLD | Modifier::ITALIC);
+                    let name = Span::styled(format!("{} ", &m.name), style);
+                    spans.push(Spans::from(vec![name, create_span(&m)]));
+                }
+
+                let paragraph = Paragraph::new(spans).block(create_block("milestones"));
+                f.render_widget(paragraph, chunks[1]);
+            }
+            else {
+                let paragraph = Paragraph::new(Spans::from("No data"))
+                    .block(create_block("milestones"));
+
+                f.render_widget(paragraph, chunks[1]);
+            }
+           
         })?;
 
         match rx.recv()? {
