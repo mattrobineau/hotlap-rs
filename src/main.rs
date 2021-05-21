@@ -1,35 +1,41 @@
-use std::io::{BufReader, stdout};
-use std::error::Error;
-use std::fs::File;
-use std::path::Path;
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
-use std::thread;
 use crossterm::{
     event::{self, Event as CEvent, KeyCode},
-    terminal::{disable_raw_mode, enable_raw_mode}
+    terminal::{disable_raw_mode, enable_raw_mode},
 };
+use serde::{Deserialize, Serialize};
+use std::error::Error;
+use std::fs::File;
+use std::io::{stdout, BufReader};
+use std::path::Path;
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
 use tui::{
-    Terminal,
     backend::CrosstermBackend,
-    widgets::{Block, Borders, Paragraph},
-    layout::{Layout, Constraint, Direction},
+    layout::{Constraint, Direction, Layout},
     style::{Modifier, Style},
-    text:: {Span, Spans}
+    text::{Span, Spans},
+    widgets::{Block, Borders, Paragraph},
+    Terminal,
 };
-use serde::{Serialize, Deserialize};
 enum Event<T> {
     Input(T),
     Tick,
 }
 
 #[derive(Serialize, Deserialize)]
+struct Time {
+    h: i32,
+    m: i32,
+    s: i32,
+    ms: i32,
+}
+
+#[derive(Serialize, Deserialize)]
 struct Milestone {
     name: String,
-    hours: i32,
-    minutes: i32,
-    seconds: i32,
-    millis: i32
+    time: Time,
+    result: f32,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -67,105 +73,104 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut start_time: Option<Instant> = None;
     let mut is_started = false;
-    let mut milestones: Vec<Milestone> = vec![];
+    let mut milestones: Vec<Milestone> = load_json(Path::new("")).unwrap();
+    let mut current_idx = 0;
 
     loop {
-        let mut milestone: Milestone;
+        let mut current_time = Time {
+            h: 0,
+            m: 0,
+            s: 0,
+            ms: 0,
+        };
 
         if let Some(start_time) = start_time {
             let (h, m, s, ms) = parse_millis(start_time.elapsed());
-            milestone = Milestone {
-                name: String::from("1"),
-                hours: h,
-                minutes: m,
-                seconds: s, 
-                millis: ms,
-            };
-        }
-        else {
-            milestone = Milestone {
-                name: String::from(""),
-                hours: 0,
-                minutes: 0,
-                seconds: 0,
-                millis: 0,
-            };
+            current_time = Time { h, m, s, ms };
         }
 
         terminal.draw(|f| {
             // Split window (TOP - BOTTOM)
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Percentage(30),
-                    Constraint::Percentage(70)
-                ].as_ref())
+                .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
                 .split(f.size());
-                
+
             let left_chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(10),
-                    Constraint::Percentage(50),
-                    Constraint::Percentage(40),
-                ].as_ref())
+                .constraints(
+                    [
+                        Constraint::Percentage(10),
+                        Constraint::Percentage(50),
+                        Constraint::Percentage(40),
+                    ]
+                    .as_ref(),
+                )
                 .split(chunks[0]);
 
+            let right_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(
+                    [
+                        Constraint::Percentage(50),
+                        Constraint::Percentage(15),
+                        Constraint::Percentage(35),
+                    ]
+                    .as_ref(),
+                )
+                .split(chunks[1]);
+
             let create_block = |title| {
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(Span::styled(format!(" {} ", title), Style::default().add_modifier(Modifier::BOLD)))
+                Block::default().borders(Borders::ALL).title(Span::styled(
+                    format!(" {} ", title),
+                    Style::default().add_modifier(Modifier::BOLD),
+                ))
             };
 
-            let create_span = |m: &Milestone| {
-                if is_started {
-                    Span::from(format!("{}:{}:{}.{}",
-                    format_tens(m.hours),
-                    format_tens(m.minutes),
-                    format_tens(m.seconds),
-                    format_hundreds(m.millis)))
-                }
-                else {
-                    Span::from(format!("00:00:00.000"))
-                }
+            let create_span = |t: &Time| {
+                Span::from(format!(
+                    "{}:{}:{}.{}",
+                    format_tens(t.h),
+                    format_tens(t.m),
+                    format_tens(t.s),
+                    format_hundreds(t.ms)
+                ))
             };
 
             // Timer pane
-            let timer = Paragraph::new(create_span(&milestone)).block(create_block("time"));
+            let timer = Paragraph::new(create_span(&current_time)).block(create_block("time"));
             f.render_widget(timer, left_chunks[0]);
 
             // Hotlap instructions pane
             let hotlap_text = vec![
                 Spans::from("<space>: start/next"),
                 Spans::from("r: reset"),
-                Spans::from("q: quit")
+                Spans::from("q: quit"),
             ];
 
-            let hotlap = Paragraph::new(hotlap_text.clone())
-                .block(create_block("hotlap"));
+            let hotlap = Paragraph::new(hotlap_text.clone()).block(create_block("hotlap"));
 
             f.render_widget(hotlap, left_chunks[1]);
 
             // Mileshtones
             if milestones.len() > 0 {
-                let mut spans: Vec<Spans> = vec![];
+                let mut milestone_spans: Vec<Spans> = vec![];
+                let mut name_spans: Vec<Spans> = vec![];
 
                 for m in milestones.iter() {
                     let style = Style::default().add_modifier(Modifier::BOLD | Modifier::ITALIC);
                     let name = Span::styled(format!("{} ", &m.name), style);
-                    spans.push(Spans::from(vec![name, create_span(&m)]));
+                    milestone_spans.push(Spans::from(vec![name, create_span(&m.time)]));
                 }
 
-                let paragraph = Paragraph::new(spans).block(create_block("milestones"));
-                f.render_widget(paragraph, chunks[1]);
-            }
-            else {
-                let paragraph = Paragraph::new(Spans::from("No data"))
-                    .block(create_block("milestones"));
+                let paragraph = Paragraph::new(name_spans).block(create_block("milestones"));
+                f.render_widget(paragraph, right_chunks[0]);
+            } else {
+                let paragraph =
+                    Paragraph::new(Spans::from("No data")).block(create_block("milestones"));
 
-                f.render_widget(paragraph, chunks[1]);
+                f.render_widget(paragraph, right_chunks[0]);
             }
-           
         })?;
 
         match rx.recv()? {
@@ -173,39 +178,59 @@ fn main() -> Result<(), Box<dyn Error>> {
                 KeyCode::Char('q') => {
                     disable_raw_mode()?;
                     break;
-                },
+                }
                 KeyCode::Char(' ') => {
                     if !is_started {
                         is_started = true;
                         start_time = Some(Instant::now());
+                    } else {
+                        let old_milestone = &milestones[current_idx];
+                        let duration = ((current_time.h * 60 * 60
+                            + current_time.m * 60
+                            + current_time.s) as f32
+                            + current_time.ms as f32 / 100f32)
+                            - ((old_milestone.time.h * 60 * 60
+                                + old_milestone.time.m * 60
+                                + old_milestone.time.s) as f32
+                                + old_milestone.time.ms as f32 / 100f32);
+                        let milestone = Milestone {
+                            name: String::from(&milestones[current_idx].name),
+                            time: current_time,
+                            result: duration,
+                        };
+                        let _ = std::mem::replace(&mut milestones[current_idx], milestone);
+                        current_idx += 1;
                     }
-                    else {
-                        milestones.push(milestone);
+
+                    if is_started {
+                        current_idx += 1
+                    } else {
+                        is_started = true;
+                        start_time = Some(Instant::now());
                     }
                 }
                 _ => {}
             },
             Event::Tick => {}
         }
-    };
+    }
     Ok(())
 }
 
-fn parse_millis(duration:Duration) -> (i32, i32, i32, i32) {
+fn parse_millis(duration: Duration) -> (i32, i32, i32, i32) {
     let millis = duration.as_millis();
-    let hours = (millis / (1000*60*60)) % 24;
+    let hours = (millis / (1000 * 60 * 60)) % 24;
     let minutes = (millis / (1000 * 60)) % 60;
     let seconds = (millis / 1000) % 60;
-    let millis = millis % 1000 ;
-    
-    (hours as i32,minutes as i32,seconds as i32,millis as i32)
+    let millis = millis % 1000;
+
+    (hours as i32, minutes as i32, seconds as i32, millis as i32)
 }
 
 fn format_tens(digit: i32) -> String {
     if digit < 10 {
         format!("0{}", digit)
-    }
-    else {
+    } else {
         format!("{}", digit)
     }
 }
@@ -213,16 +238,15 @@ fn format_tens(digit: i32) -> String {
 fn format_hundreds(digit: i32) -> String {
     if digit < 10 {
         format!("00{}", digit)
-    }
-    else if digit < 100 {
+    } else if digit < 100 {
         format!("0{}", digit)
-    }
-    else {
+    } else {
         format!("{}", digit)
     }
 }
 
-fn load_json<T: AsRef<Path>>(path: T) -> Result<Milestone, Box<dyn Error>> {
+fn load_json<T: AsRef<Path>>(path: T) -> Result<Vec<Milestone>, Box<dyn Error>> {
+    let path = Path::new("./target/debug/test.json");
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let milestones = serde_json::from_reader(reader)?;
