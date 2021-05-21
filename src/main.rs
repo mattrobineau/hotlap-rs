@@ -15,7 +15,7 @@ use tui::{
     layout::{Constraint, Direction, Layout},
     style::{Modifier, Style},
     text::{Span, Spans},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
     Terminal,
 };
 enum Event<T> {
@@ -35,7 +35,7 @@ struct Time {
 struct Milestone {
     name: String,
     time: Time,
-    result: f32,
+    result: Option<f32>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -110,14 +110,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             let right_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints(
-                    [
-                        Constraint::Percentage(50),
-                        Constraint::Percentage(15),
-                        Constraint::Percentage(35),
-                    ]
-                    .as_ref(),
-                )
+                .constraints([Constraint::Percentage(100)].as_ref())
                 .split(chunks[1]);
 
             let create_block = |title| {
@@ -154,17 +147,42 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             // Mileshtones
             if milestones.len() > 0 {
-                let mut milestone_spans: Vec<Spans> = vec![];
-                let mut name_spans: Vec<Spans> = vec![];
+                //let mut milestone_spans: Vec<Spans> = vec![];
+                //let mut name_spans: Vec<Spans> = vec![];
+
+                //for m in milestones.iter() {
+                //    let style = Style::default().add_modifier(Modifier::BOLD | Modifier::ITALIC);
+                //    let name = Span::styled(format!("{} ", &m.name), style);
+                //    milestone_spans.push(Spans::from(vec![name, create_span(&m.time)]));
+                //}
+
+                //let paragraph = Paragraph::new(name_spans).block(create_block("milestones"));
+                //f.render_widget(paragraph, right_chunks[0]);
+                let mut rows: Vec<Row> = vec![];
 
                 for m in milestones.iter() {
-                    let style = Style::default().add_modifier(Modifier::BOLD | Modifier::ITALIC);
-                    let name = Span::styled(format!("{} ", &m.name), style);
-                    milestone_spans.push(Spans::from(vec![name, create_span(&m.time)]));
+                    let mut row: Vec<Cell> = vec![];
+                    row.push(Cell::from(Span::styled(
+                        format!("{}", &m.name),
+                        Style::default().add_modifier(Modifier::BOLD | Modifier::ITALIC),
+                    )));
+
+                    match m.result {
+                        Some(r) => row.push(Cell::from(format!("{}", r))),
+                        None => row.push(Cell::from("")),
+                    };
+
+                    row.push(Cell::from(create_span(&m.time)));
+
+                    rows.push(Row::new(row));
                 }
 
-                let paragraph = Paragraph::new(name_spans).block(create_block("milestones"));
-                f.render_widget(paragraph, right_chunks[0]);
+                let table = Table::new(rows).block(create_block("milestones")).widths(&[
+                    Constraint::Percentage(50),
+                    Constraint::Percentage(15),
+                    Constraint::Percentage(35),
+                ]);
+                f.render_widget(table, right_chunks[0]);
             } else {
                 let paragraph =
                     Paragraph::new(Spans::from("No data")).block(create_block("milestones"));
@@ -196,7 +214,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         let milestone = Milestone {
                             name: String::from(&milestones[current_idx].name),
                             time: current_time,
-                            result: duration,
+                            result: Some(duration),
                         };
                         let _ = std::mem::replace(&mut milestones[current_idx], milestone);
                         current_idx += 1;
