@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Span, Spans},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
     Terminal,
@@ -147,17 +147,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             // Mileshtones
             if milestones.len() > 0 {
-                //let mut milestone_spans: Vec<Spans> = vec![];
-                //let mut name_spans: Vec<Spans> = vec![];
-
-                //for m in milestones.iter() {
-                //    let style = Style::default().add_modifier(Modifier::BOLD | Modifier::ITALIC);
-                //    let name = Span::styled(format!("{} ", &m.name), style);
-                //    milestone_spans.push(Spans::from(vec![name, create_span(&m.time)]));
-                //}
-
-                //let paragraph = Paragraph::new(name_spans).block(create_block("milestones"));
-                //f.render_widget(paragraph, right_chunks[0]);
                 let mut rows: Vec<Row> = vec![];
 
                 for m in milestones.iter() {
@@ -167,8 +156,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                         Style::default().add_modifier(Modifier::BOLD | Modifier::ITALIC),
                     )));
 
+                    // +- from last Time
                     match m.result {
-                        Some(r) => row.push(Cell::from(format!("{}", r))),
+                        Some(r) => {
+                            let mut style = Style::default();
+                            if r > 0.0 {
+                                style = Style::default().fg(Color::Red);
+                            } else if r < 0.0 {
+                                style = Style::default().fg(Color::Green);
+                            }
+
+                            row.push(Cell::from(Span::styled(format!("{:.3}", r), style)));
+                        }
                         None => row.push(Cell::from("")),
                     };
 
@@ -200,6 +199,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 KeyCode::Char(' ') => {
                     if !is_started {
                         is_started = true;
+                        current_idx = 0;
                         start_time = Some(Instant::now());
                     } else {
                         let old_milestone = &milestones[current_idx];
@@ -217,15 +217,19 @@ fn main() -> Result<(), Box<dyn Error>> {
                             result: Some(duration),
                         };
                         let _ = std::mem::replace(&mut milestones[current_idx], milestone);
-                        current_idx += 1;
-                    }
 
-                    if is_started {
-                        current_idx += 1
-                    } else {
-                        is_started = true;
-                        start_time = Some(Instant::now());
+                        if (current_idx + 1 < milestones.len()) {
+                            current_idx += 1;
+                        } else {
+                            is_started = false;
+                            start_time = None;
+                        }
                     }
+                }
+                KeyCode::Char('r') => {
+                    milestones = load_json(Path::new("")).unwrap();
+                    is_started = false;
+                    start_time = None;
                 }
                 _ => {}
             },
