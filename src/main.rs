@@ -4,8 +4,8 @@ use crossterm::{
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use std::fs::File;
-use std::io::{stdout, BufReader};
+use std::fs::{File, OpenOptions};
+use std::io::{stdout, BufReader, Write};
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut start_time: Option<Instant> = None;
     let mut is_started = false;
-    let mut milestones: Vec<Milestone> = load_json(Path::new("")).unwrap();
+    let mut milestones: Vec<Milestone> = load_json(Path::new("./target/debug/test.json")).unwrap();
     let mut current_idx = 0;
 
     loop {
@@ -137,6 +137,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             // Hotlap instructions pane
             let hotlap_text = vec![
                 Spans::from("<space>: start/next"),
+                Spans::from("s: save best"),
                 Spans::from("r: reset"),
                 Spans::from("q: quit"),
             ];
@@ -218,7 +219,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         };
                         let _ = std::mem::replace(&mut milestones[current_idx], milestone);
 
-                        if (current_idx + 1 < milestones.len()) {
+                        if current_idx + 1 < milestones.len() {
                             current_idx += 1;
                         } else {
                             is_started = false;
@@ -230,6 +231,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                     milestones = load_json(Path::new("")).unwrap();
                     is_started = false;
                     start_time = None;
+                }
+                KeyCode::Char('s') => {
+                    if !is_started {
+                        save_json("./target/debug/test.json", &milestones)?;
+                    }
                 }
                 _ => {}
             },
@@ -268,9 +274,21 @@ fn format_hundreds(digit: i32) -> String {
 }
 
 fn load_json<T: AsRef<Path>>(path: T) -> Result<Vec<Milestone>, Box<dyn Error>> {
-    let path = Path::new("./target/debug/test.json");
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let milestones = serde_json::from_reader(reader)?;
     Ok(milestones)
+}
+
+fn save_json<T: AsRef<Path>>(path: T, milestones: &Vec<Milestone>) -> std::io::Result<()> {
+    let json = serde_json::to_string(milestones)?;
+
+    let mut f = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
+    f.write_all(&json.as_bytes())?;
+
+    Ok(())
 }
